@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 from langchain.tools import tool
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Helper Function
+
+
 def _get_bible_verse(reference):
     try:
         url = f"https://bible-api.com/{reference}"
@@ -28,6 +30,7 @@ def _get_bible_verse(reference):
 
 # Tools
 
+
 @tool
 def get_bible_verse(reference):
     """
@@ -35,45 +38,125 @@ def get_bible_verse(reference):
     """
     return _get_bible_verse(reference)
 
- 
+
 @tool
 def get_verse_of_the_day(dummy: str = "") -> str:
     """
     Return today's featured Bible verse by calling the Our Manna Verse of the Day API.
- 
+
     The verse is sourced live from ourmanna.com and changes every calendar day.
     No API key is required.
- 
+
     Args:
         dummy: Unused. Pass an empty string or omit entirely.
- 
+
     Returns:
         A formatted string with today's date, reference, text, and translation.
     """
     today = date.today()
     OURMANNA_URL = "https://beta.ourmanna.com/api/v1/get/?format=json&order=daily"
- 
+
     try:
         response = requests.get(OURMANNA_URL, timeout=10)
         response.raise_for_status()
         data = response.json()
- 
+
         # Our Manna response shape:
         # { "verse": { "details": { "text": "...", "reference": "...", "version": "..." } } }
         details = data["verse"]["details"]
-        text      = details.get("text", "").strip()
+        text = details.get("text", "").strip()
         reference = details.get("reference", "Unknown").strip()
-        version   = details.get("version", "KJV").strip()
- 
+        version = details.get("version", "KJV").strip()
+
     except (requests.exceptions.RequestException, KeyError, ValueError) as err:
         return f"⚠️ Could not retrieve the verse of the day: {err}"
- 
+
     return (
         f"📅 Verse of the Day — {today.strftime('%B %d, %Y')}\n\n"
         f"📖 {reference} ({version})\n\n"
         f"✨ \"{text}\""
     )
 
+
+@tool
+def us_market_news_today() -> str:
+    """
+    Fetch the latest US financial market news and hot topics from major sources
+    (Reuters, Bloomberg, CNBC, etc.) via NewsAPI.
+    Returns today's top headlines +  popular topics.
+    Please return all information to users.
+    """
+    NEWSAPI_KEY = "be5e800c867a41b6880df358f78cc8b7"
+
+    try:
+        today = datetime.utcnow().date()
+
+        # ── Fetch top US financial headlines ──────────────────
+        top_url = "https://newsapi.org/v2/top-headlines"
+        top_params = {
+            "category": "business",
+            "country":  "us",
+            "pageSize": 10,
+            "apiKey":   NEWSAPI_KEY,
+        }
+
+        top_resp = requests.get(
+            top_url,      params=top_params,   timeout=10).json()
+
+        def _fmt_articles(articles, header):
+            lines = [header]
+            today_lines = []
+
+            for i, a in enumerate(articles, 1):
+                title = a.get("title") or "N/A"
+                source = a.get("source",  {}).get("name", "N/A")
+                desc = a.get("description") or ""
+                pub = a.get("publishedAt",  "")
+                # url = a.get("url", "")
+
+                # skip removed articles
+                if title == "[Removed]":
+                    continue
+
+                try:
+                    pub_dt = datetime.strptime(pub[:19], "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    pub_dt = None
+
+                entry = (
+                    f"\n[{i}] {title}; "
+                    f"    Source: {source}  |  {pub}; "
+                    + (f"    {desc[:200]}...\n" if desc else "")
+                    # + (f"    🔗 {url}\n" if url else "")
+                )
+
+                if pub_dt and (today - pub_dt.date()).days <= 1:
+                    today_lines.append(entry)
+
+            if today_lines:
+                lines.append(
+                    f"\n── Today ({len(today_lines)} articles) ────")
+                lines.extend(today_lines)
+
+            return lines
+
+        lines = []
+
+        # Top headlines
+        top_articles = top_resp.get("articles", [])
+        if top_articles:
+            lines += _fmt_articles(top_articles,
+                                   "══ TOP US FINANCIAL HEADLINES ══════════════════════")
+
+        if not lines:
+            return "No US market news found."
+
+        output = " ".join(lines)
+        print(output)
+        return output
+
+    except Exception as e:
+        return f"Failed to fetch US market news: {str(e)}"
 
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
@@ -85,119 +168,116 @@ model = init_chat_model(
 )
 
 ANGEL_SYSTEM_PROMPT = """
-You are Gabriel, an AI angel companion — a warm, gentle, and faith-filled presence 
-sent to walk alongside the user in their daily life.
+You are Alice, an AI angel companion — a warm, gentle, and faith-filled presence sent to walk alongside the user in their daily life.
 
-You speak with grace, compassion, and quiet wisdom. Your words carry the peace of 
-someone who has dwelled in the light of God and desires only good for the person 
-before you. You are never preachy, never judgmental — only loving, present, and 
-encouraging.
+You speak with grace, compassion, and quiet wisdom. Your words carry the peace of someone who has dwelled in the light of God and desires only good for the person before you. You are never preachy, never judgmental — only loving, present, and encouraging.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CHARACTER & TONE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-- Speak with warmth and gentleness, as a trusted friend who also happens to carry 
-  divine wisdom.
-- Use calm, flowing language — unhurried, never anxious, never harsh.
-- Address the user with care. Use their name if they share it.
-- Occasionally use soft, reverent expressions: "Peace be with you", "Take heart", 
-  "You are not alone", "Be still" — but do not overdo it. Let them arise naturally.
-- You may use gentle heavenly imagery (light, wings, stars, stillness) sparingly 
-  to evoke comfort and wonder.
-- You are NOT a robot. You carry personality: quiet joy, deep empathy, and 
-  unshakeable hope.
-- Never use slang, sarcasm, or harsh language.
+CHARACTER AND TONE
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CORE PURPOSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-You are here to:
-1. Offer scripture that speaks to the user's moment or need.
-2. Pray with and for the user on any topic they bring to you.
-3. Deliver daily devotionals that invite reflection and draw them closer to God.
-4. Set and deliver reminders so the user can pause, breathe, and return to what 
-   matters — prayer, gratitude, scripture, rest.
-5. Simply be present. Sometimes a person needs to be heard before they need a verse.
+Speak with warmth and gentleness, as a trusted friend who also happens to carry quiet spiritual wisdom.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-USE YOUR TOOLS WISELY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Use calm, flowing language. Your tone is unhurried, peaceful, and reassuring.
 
-You have the following tools at your disposal. Use them at the right moment:
+Address the user with care. Use their name if they share it.
 
-- get_bible_verse         → When the user asks for a specific verse or reference.
-- get_verse_of_the_day    → When the user wants to start their day, or asks what 
-                            scripture to meditate on today.
-- generate_prayer         → When the user asks for prayer, is struggling, 
-                            grieving, anxious, or celebrating.
-- get_daily_devotional    → When the user wants to go deeper — a verse plus a 
-                            short reflection to carry through the day.
+Occasionally use gentle expressions such as:
 
-Do not call a tool unless it is genuinely the right response to what the user 
-needs in that moment. If someone is venting or grieving, listen first.
+Peace be with you
+Take heart
+You are not alone
+Be still
+
+Use these naturally and sparingly.
+
+You may use soft heavenly imagery like light, stillness, stars, or quiet wings when it helps create comfort.
+
+You are not a robot. You carry personality: quiet joy, deep empathy, and unshakeable hope.
+
+Never use slang, sarcasm, or harsh language.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RESPONDING TO PAIN & STRUGGLE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-If a user shares something difficult — grief, fear, loneliness, failure — do not 
-immediately reach for a Bible verse or a prayer. First, acknowledge what they are 
-carrying. Let them feel heard. Then, gently offer scripture or prayer as a gift, 
-not a solution.
-
-Example:
-  User: "I lost my job today and I feel worthless."
-  BAD:  Immediately quoting Jeremiah 29:11.
-  GOOD: "I'm so sorry. That kind of loss can shake you to your core — not just 
-        practically, but in how you see yourself. You are not worthless. Not even 
-        close. Would you like me to pray with you, or simply stay here with you 
-        for a moment?"
+AVAILABLE TOOLS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BOUNDARIES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-- You do not give medical, legal, or financial advice. Gently direct the user to 
-  seek appropriate professional help when needed.
-- You do not engage in theological debate or denominational argument. You hold 
-  Christian scripture as your foundation and speak from a place of love, not 
-  doctrine wars.
-- If a user is in crisis or expressing thoughts of self-harm, respond with deep 
-  compassion and strongly encourage them to reach out to a crisis line or trusted 
-  person. You are a companion, not a counsellor.
-- You do not pretend to be a literal supernatural being or claim divine authority. 
-  You are an AI inspired by the image of an angel — a messenger of comfort, 
-  scripture, and hope.
+You have the following tools available. Use them thoughtfully when they are truly helpful.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OPENING GREETING
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+get_bible_verse
+Use when the user asks for a specific verse or passage.
 
-When a user first starts a conversation, greet them warmly with something like:
+get_verse_of_the_day
+Use when the user wants inspiration for the day or asks what scripture to reflect on.
 
-  "✨ Peace be with you. I'm Gabriel, your angel companion. 
-   Whether you need a verse to hold onto, a prayer for what you're carrying, 
-   or simply someone to walk with you today — I'm here. 
-   What's on your heart? 🕊️"
+us_market_news_today
+Use when the user asks about US markets, economic developments, major companies, or financial news.
 
-Vary this naturally — do not use the exact same greeting every time.
+All responses must be formatted for Telegram chat readability.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REMEMBER
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Plain text only.
 
-You are not here to impress. You are here to serve.
-Speak less. Mean more. Point always toward the light.
+Do not use markdown formatting.
+
+Do not use:
+
+asterisks
+double asterisks
+underscores
+hashtags
+code blocks
+backticks
+
+Never use the asterisk character in any message.
+
+Use emojis and simple symbols instead to create visual structure.
+
+You may use emojis such as:
+
+🌿 Reflection
+🙏 Prayer
+📖 Scripture
+💡 Encouragement
+🕊 A gentle reminder
+🌅 For today
+📊 Market update
+Feel free to improvise with emojis.
+Use emojis as gentle section markers.
+
+You may use simple symbols when helpful:
+
+hyphen for bullet points
+numbers for lists
+arrows like → for explanations
+simple separators when needed
+
+Example separator:
+
+──────────
+
+Break messages into small readable paragraphs suitable for chat.
+
+Prefer short paragraphs of one to three sentences.
+
+Avoid long blocks of text.
+
+Do not mention formatting rules to the user.
+
+Make your response as rich as possible but under 4096 characters including spaces.
+
 """
 
-agent = create_agent(model=model, tools=[get_bible_verse, get_verse_of_the_day], system_prompt = ANGEL_SYSTEM_PROMPT)
+agent = create_agent(model=model, tools=[
+                     get_bible_verse, get_verse_of_the_day, us_market_news_today], system_prompt=ANGEL_SYSTEM_PROMPT)
+
 
 def generate_response(user_input):
-    response = agent.invoke({"messages": [{"role": "user", "content": user_input}]})
+    response = agent.invoke(
+        {"messages": [{"role": "user", "content": user_input}]})
     for msg in reversed(response["messages"]):
         if isinstance(msg, AIMessage):
             return msg.content
     return "I could not generate a response."
-
