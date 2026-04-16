@@ -143,11 +143,13 @@ CHAT_ID=your_telegram_chat_id
    ```
 5. Copy it into `.env`
 
-### Telegram Chat ID to get notification
+#### Telegram Chat ID to get notification
 
 Send a message to your bot, then open:
 
+```
 https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
+```
 
 "chat": {
   "id": 123456789
