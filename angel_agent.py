@@ -5,14 +5,39 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 import requests
 import os
+import time
 import json
-
+from collections import defaultdict, deque
 from dotenv import load_dotenv
 load_dotenv()
 
+
+# =========================
+# MEMORY (5-minute session)
+# =========================
+
+SESSION_MEMORY = defaultdict(lambda: {
+    "messages": deque(),
+    "last_active": time.time()
+})
+
+SESSION_TIMEOUT = 300  # 5 minutes
+MAX_MESSAGES = 20
+
+
+def cleanup_sessions():
+    now = time.time()
+    expired = []
+
+    for user_id, data in SESSION_MEMORY.items():
+        if now - data["last_active"] > SESSION_TIMEOUT:
+            expired.append(user_id)
+
+    for user_id in expired:
+        del SESSION_MEMORY[user_id]
+
+
 # Helper Function
-
-
 def _get_bible_verse(reference):
     try:
         url = f"https://bible-api.com/{reference}"
@@ -273,7 +298,7 @@ Make your response as rich as possible but under 4096 characters including space
 agent = create_agent(model=model, tools=[
                      get_bible_verse, get_verse_of_the_day, us_market_news_today], system_prompt=ANGEL_SYSTEM_PROMPT)
 
-
+"""
 def generate_response(user_input):
     response = agent.invoke(
         {"messages": [{"role": "user", "content": user_input}]})
@@ -281,3 +306,48 @@ def generate_response(user_input):
         if isinstance(msg, AIMessage):
             return msg.content
     return "I could not generate a response."
+"""
+# =========================
+# MAIN FUNCTION WITH MEMORY
+# =========================
+
+
+def generate_response(user_id, user_input):
+    cleanup_sessions()
+
+    session = SESSION_MEMORY[user_id]
+    session["last_active"] = time.time()
+
+    # add user message
+    session["messages"].append({
+        "role": "user",
+        "content": user_input
+    })
+
+    # trim memory
+    while len(session["messages"]) > MAX_MESSAGES:
+        session["messages"].popleft()
+
+    # call agent with memory
+    response = agent.invoke({
+        "messages": list(session["messages"])
+    })
+
+    # extract assistant message
+    assistant_reply = None
+
+    for msg in reversed(response["messages"]):
+        if isinstance(msg, AIMessage):
+            assistant_reply = msg.content
+            break
+
+    if not assistant_reply:
+        assistant_reply = "I could not generate a response."
+
+    # save assistant message
+    session["messages"].append({
+        "role": "assistant",
+        "content": assistant_reply
+    })
+
+    return assistant_reply

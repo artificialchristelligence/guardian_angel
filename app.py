@@ -21,6 +21,7 @@ CHAT_ID = os.environ.get("CHAT_ID")
 #  schedule.txt parser
 # ══════════════════════════════════════════════════════════════
 
+
 def parse_knock_file(filepath: str = "schedule.txt") -> list[dict]:
     """
     Parse knock.txt into a list of job dicts.
@@ -54,7 +55,8 @@ def parse_knock_file(filepath: str = "schedule.txt") -> list[dict]:
                 job[key.strip().lower()] = value.strip()
 
         if "schedule" not in job or "prompt" not in job:
-            print(f"[knock] Block {block_index + 1}: missing 'schedule' or 'prompt' — skipped.")
+            print(
+                f"[knock] Block {block_index + 1}: missing 'schedule' or 'prompt' — skipped.")
             continue
 
         jobs.append(job)
@@ -83,7 +85,7 @@ def build_trigger(schedule_str: str):
                  interval 1d           → every day
     """
     parts = schedule_str.split()
-    kind  = parts[0].lower()
+    kind = parts[0].lower()
 
     if kind == "cron":
         if len(parts) != 6:
@@ -99,7 +101,8 @@ def build_trigger(schedule_str: str):
 
     elif kind == "interval":
         if len(parts) != 2:
-            raise ValueError(f"'interval' expects exactly one value, e.g. '30m': '{schedule_str}'")
+            raise ValueError(
+                f"'interval' expects exactly one value, e.g. '30m': '{schedule_str}'")
         raw = parts[1].lower()
         m = re.fullmatch(r"(\d+)(m|h|d)", raw)
         if not m:
@@ -107,7 +110,7 @@ def build_trigger(schedule_str: str):
                 f"Interval value must match <N>m / <N>h / <N>d, got: '{raw}'"
             )
         amount = int(m.group(1))
-        unit   = m.group(2)
+        unit = m.group(2)
         kwargs = (
             {"minutes": amount} if unit == "m" else
             {"hours":   amount} if unit == "h" else
@@ -131,7 +134,7 @@ async def run_knock_job(prompt: str, job_name: str, bot: Bot = None, chat_id: st
     print(f"[Schedule] [{timestamp}] Running '{job_name}' | prompt={prompt!r}")
 
     try:
-        response = generate_response(prompt)
+        response = generate_response(chat_id, prompt)
     except Exception as exc:
         response = f"[Agent error in '{job_name}'] {exc}"
         print(f"[Schedule] ERROR in '{job_name}': {exc}")
@@ -140,7 +143,8 @@ async def run_knock_job(prompt: str, job_name: str, bot: Bot = None, chat_id: st
         try:
             await bot.send_message(chat_id=int(chat_id), text=response)
         except Exception as exc:
-            print(f"[knock] Failed to send Telegram message for '{job_name}': {exc}")
+            print(
+                f"[knock] Failed to send Telegram message for '{job_name}': {exc}")
     else:
         print(f"[knock] Response for '{job_name}':\n{response}")
 
@@ -155,8 +159,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text
+    user_id = update.message.from_user.id
     try:
-        response = generate_response(user_text)  
+        response = generate_response(user_id, user_text)
     except Exception:
         response = "Error..."
     await update.message.reply_text(response)
@@ -178,7 +183,7 @@ def main() -> None:
 
     for index, job in enumerate(parse_knock_file("schedule.txt")):
         job_name = job.get("name", f"knock_job_{index + 1}")
-        prompt   = job["prompt"]
+        prompt = job["prompt"]
 
         try:
             trigger = build_trigger(job["schedule"])
@@ -194,7 +199,8 @@ def main() -> None:
                 misfire_grace_time=60,
                 replace_existing=True,
             )
-            print(f"[Schedule] Registered: '{job_name}' → schedule='{job['schedule']}'")
+            print(
+                f"[Schedule] Registered: '{job_name}' → schedule='{job['schedule']}'")
         except Exception as exc:
             print(f"[Schedule] Could not register '{job_name}': {exc}")
 
@@ -218,7 +224,8 @@ def main() -> None:
     )
 
     telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    telegram_app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_error_handler(handle_error)
 
     # ── Start polling (creates + runs the event loop) ──────────
