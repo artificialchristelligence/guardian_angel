@@ -45,6 +45,7 @@ AI responses — no database required.
 | 🤖 **AI Responses**        | Faith-centred conversations powered by DeepSeek via LangChain    |
 | 📖 **Bible Verse Lookup**  | Fetch any verse by reference (e.g. `John 3:16`)                  |
 | 🌅 **Verse of the Day**    | Automatically pushed to Telegram each morning                    |
+| 📉 **Market Latest News**  | Fetch latest US stock market news                                |
 | ⏰ **Scheduled Reminders** | Set personal reminders that the angel delivers at the right time |
 | 🙏 **Prayer Prompt**       | Ask for a prayer on any topic and receive one                    |
 | 💬 **Telegram Interface**  | Fully conversational — no app needed beyond Telegram             |
@@ -119,6 +120,7 @@ Create a `.env` file in your project root:
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+CHAT_ID=your_telegram_chat_id
 ```
 
 ### Getting Your Keys
@@ -141,6 +143,17 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
    ```
 5. Copy it into `.env`
 
+### Telegram Chat ID to get notification
+
+Send a message to your bot, then open:
+
+https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
+
+"chat": {
+  "id": 123456789
+}
+
+That number is your chat_id.
 ---
 
 ## 🚀 Running the Agent
@@ -167,8 +180,7 @@ The Angel Agent comes with the following LangChain tools:
 | ---------------------- | ------------------------------------------------------------------- | --- |
 | `get_bible_verse`      | Fetch a verse by reference via the Bible API (e.g. `Romans 8:28`)   |
 | `get_verse_of_the_day` | Retrieve today's featured verse                                     |     |
-| `generate_prayer`      | Ask the agent to compose a prayer for a specific topic or intention |
-| `get_daily_devotional` | Return a short reflection built around a random verse               |
+| `us_market_news_today` | Fetch latest US market news.                                        |     |
 
 ---
 
