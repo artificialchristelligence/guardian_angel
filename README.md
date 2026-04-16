@@ -151,9 +151,13 @@ Send a message to your bot, then open:
 https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
 ```
 
+Look for 
+
+```
 "chat": {
   "id": 123456789
 }
+```
 
 That number is your chat_id.
 ---
