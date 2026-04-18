@@ -9,6 +9,7 @@ import time
 import json
 from collections import defaultdict, deque
 from dotenv import load_dotenv
+import mongodb_journal as mongojnal
 load_dotenv()
 
 
@@ -53,9 +54,9 @@ def _get_bible_verse(reference):
         print("Error fetching verse: {e}")
         return f"Error fetching verse: {e}"
 
-# Tools
-
-
+#================
+#  Faith Tools
+#================
 @tool
 def get_bible_verse(reference):
     """
@@ -102,7 +103,9 @@ def get_verse_of_the_day(dummy: str = "") -> str:
         f"✨ \"{text}\""
     )
 
-
+#================
+#  Market Tools
+#================
 @tool
 def us_market_news_today() -> str:
     """
@@ -183,6 +186,98 @@ def us_market_news_today() -> str:
     except Exception as e:
         return f"Failed to fetch US market news: {str(e)}"
 
+
+#================
+#  Journal Tools
+#================
+
+
+@tool
+def record_reflection(content: str, tags: str = "") -> str:
+    """
+    Save a personal reflection or journal entry.
+    Accepts the reflection text and an optional comma-separated tag string e.g. 'mindset,trading,discipline'.
+    Stores: content (str), tags (list), created_at (UTC timestamp), week (ISO int), year (int).
+    """
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    result = mongojnal.save_reflection(content, tag_list)
+    if "error" in result:
+        return f"Failed to save reflection: {result['error']}"
+    return f"Reflection saved at {result['created_at']}."
+
+
+@tool
+def get_this_week_reflections() -> str:
+    """Fetch all reflections recorded during the current ISO week (Monday to Sunday)."""
+    entries = mongojnal.get_reflections_this_week()
+    if not entries:
+        return "No reflections found for this week."
+    lines = [f"This Week's Reflections ({len(entries)} entries):\n"]
+    for i, e in enumerate(entries, 1):
+        tags = ", ".join(e.get("tags", [])) or "none"
+        lines.append(f"[{i}] {e['created_at'][:10]}  |  Tags: {tags}\n{e['content']}\n")
+    return "\n".join(lines)
+
+
+@tool
+def get_last_week_reflections() -> str:
+    """Fetch all reflections from the previous ISO week. Use this at session start to establish continuity."""
+    entries = mongojnal.get_reflections_last_week()
+    if not entries:
+        return "No reflections found for last week."
+    lines = [f"Last Week's Reflections ({len(entries)} entries):\n"]
+    for i, e in enumerate(entries, 1):
+        tags = ", ".join(e.get("tags", [])) or "none"
+        lines.append(f"[{i}] {e['created_at'][:10]}  |  Tags: {tags}\n{e['content']}\n")
+    return "\n".join(lines)
+
+
+@tool
+def get_recent_reflections(limit: int = 10) -> str:
+    """Fetch the N most recent reflections across all weeks. Accepts limit (int, default 10)."""
+    entries = mongojnal.get_recent_reflections(limit)
+    if not entries:
+        return "No reflections found."
+    lines = [f"Recent {len(entries)} Reflections:\n"]
+    for i, e in enumerate(entries, 1):
+        tags = ", ".join(e.get("tags", [])) or "none"
+        lines.append(f"[{i}] {e['created_at'][:10]}  |  Tags: {tags}\n{e['content']}\n")
+    return "\n".join(lines)
+
+@tool
+def record_growth_milestone(title: str, description: str, category: str = "general") -> str:
+    """
+    Record a growth milestone or personal breakthrough.
+    Accepts:
+        title       - short achievement label e.g. 'Held a winner past my usual exit'
+        description - what happened and why it represents genuine growth
+        category    - one of: 'trading', 'mindset', 'discipline', 'knowledge', 'habit', 'emotion', 'general'
+    Stores: title (str), description (str), category (str), created_at (UTC timestamp), week (ISO int), year (int).
+    """
+    result = mongojnal.save_growth_milestone(title, description, category)
+    if "error" in result:
+        return f"Failed to record milestone: {result['error']}"
+    return f"Growth milestone '{title}' recorded."
+
+
+@tool
+def get_growth_timeline(limit: int = 20) -> str:
+    """Fetch the N most recent growth milestones. Accepts limit (int, default 20)."""
+    entries = mongojnal.get_growth_timeline(limit)
+    if not entries:
+        return "No growth milestones recorded yet."
+    lines = [f"Growth Timeline ({len(entries)} milestones):\n"]
+    for i, e in enumerate(entries, 1):
+        lines.append(
+            f"[{i}] {e['created_at'][:10]}  [{e['category'].upper()}]  {e['title']}\n"
+            f"  {e['description']}\n"
+        )
+    return "\n".join(lines)
+
+
+#================
+#  LLM
+#================
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
@@ -296,7 +391,7 @@ Make your response as rich as possible but under 4096 characters including space
 """
 
 agent = create_agent(model=model, tools=[
-                     get_bible_verse, get_verse_of_the_day, us_market_news_today], system_prompt=ANGEL_SYSTEM_PROMPT)
+                     get_bible_verse, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections], system_prompt=ANGEL_SYSTEM_PROMPT)
 
 """
 def generate_response(user_input):

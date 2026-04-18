@@ -57,8 +57,9 @@ AI responses — no database required.
 ```
 angel_agent/
 ├── app.py              # Telegram bot + LangChain agent entry point
-├── tools.py            # LangChain tools (Bible API, reminders, prayer)
-├── scheduler.py        # APScheduler jobs (verse of the day, reminders)
+├── angel_agent.py      # LangChain tools (Bible API, US market news, prayer)
+├── scheduler.py        # APScheduler jobs (verse of the day, market news)
+├── mongodb_journal.py  # mongodb connection to document reflection and milestones
 ├── requirements.txt
 └── .env                # Secrets — never commit this!
 ```
@@ -70,6 +71,7 @@ angel_agent/
 - Python 3.9+
 - Telegram Bot Token
 - DeepSeek API Key
+- MongoDB Database Password
 - Internet connection (Bible API is free, no key needed)
 
 ---
@@ -151,7 +153,7 @@ Send a message to your bot, then open:
 https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
 ```
 
-Look for 
+Look for
 
 ```
 "chat": {
@@ -159,8 +161,7 @@ Look for
 }
 ```
 
-That number is your chat_id.
----
+## That number is your chat_id.
 
 ## 🚀 Running the Agent
 
@@ -182,11 +183,11 @@ Your Telegram bot is now live and listening.
 
 The Angel Agent comes with the following LangChain tools:
 
-| Tool                   | Description                                                         |
-| ---------------------- | ------------------------------------------------------------------- | --- |
-| `get_bible_verse`      | Fetch a verse by reference via the Bible API (e.g. `Romans 8:28`)   |
-| `get_verse_of_the_day` | Retrieve today's featured verse                                     |     |
-| `us_market_news_today` | Fetch latest US market news.                                        |     |
+| Tool                   | Description                                                       |
+| ---------------------- | ----------------------------------------------------------------- | --- |
+| `get_bible_verse`      | Fetch a verse by reference via the Bible API (e.g. `Romans 8:28`) |
+| `get_verse_of_the_day` | Retrieve today's featured verse                                   |     |
+| `us_market_news_today` | Fetch latest US market news.                                      |     |
 
 ---
 
