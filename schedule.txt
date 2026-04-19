@@ -1,11 +1,12 @@
-name:     minute_motivation
-schedule: cron 0 9 * * *
-prompt:   It is time to work now. Please give me some words of encouragement 
----
 name:     verse_of_the_day
-schedule: cron 0 8 * * *
+schedule: cron 0 7 * * *
 prompt:   Show me the verse of the day and help me reflect a bit
 ---
 name:     night_prayer
-schedule: cron 0 22 * * *
+schedule: cron 0 21 * * *
 prompt:   It is time to sleep. Let's pray together for everything
+---
+name:     business_news_us
+schedule: cron 0 10 * * *
+prompt:   Please fetch US latest market news and include every piece of news in the response
+---

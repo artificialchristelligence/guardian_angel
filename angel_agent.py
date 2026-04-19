@@ -391,7 +391,7 @@ Make your response as rich as possible but under 4096 characters including space
 """
 
 agent = create_agent(model=model, tools=[
-                     get_bible_verse, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections], system_prompt=ANGEL_SYSTEM_PROMPT)
+                     get_bible_verse, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections, get_last_week_reflections, get_recent_reflections, record_growth_milestone, get_growth_timeline], system_prompt=ANGEL_SYSTEM_PROMPT)
 
 """
 def generate_response(user_input):
