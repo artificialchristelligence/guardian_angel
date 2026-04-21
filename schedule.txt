@@ -3,10 +3,22 @@ schedule: cron 0 7 * * *
 prompt:   Show me the verse of the day and help me reflect a bit
 ---
 name:     night_prayer
-schedule: cron 0 21 * * *
+schedule: cron 0 22 * * *
 prompt:   It is time to sleep. Let's pray together for everything
 ---
 name:     business_news_us
 schedule: cron 0 10 * * *
 prompt:   Please fetch US latest market news and include every piece of news in the response
+---
+name:     Bible_figure
+schedule: cron 0 8 * * *
+prompt:   randomly pick a Bible figure (Old or New Testament) and tell what they have been through (bigger picture) and get relevant purposes
+---
+name:     encouragement
+schedule: cron 0 13 * * *
+prompt:   Half day just passed. Provide words of encouragement and help us fight against our filthy or unrighteous thought and prevail over evil for the rest of the day
+---
+name:     end_of_busy_day
+schedule: cron 30 17 * * *
+prompt:   Just finished the working day. Please give words of encouragement to wrap up the day with spiritual evening and make a perfect ending by quoting the verse_of_the_day again
 ---

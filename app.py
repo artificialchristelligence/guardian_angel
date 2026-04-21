@@ -160,6 +160,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text
     user_id = update.message.from_user.id
+    chat_id = update.message.chat.id
     try:
         response = generate_response(user_id, user_text)
     except Exception:
