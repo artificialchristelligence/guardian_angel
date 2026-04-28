@@ -10,6 +10,7 @@ import json
 from collections import defaultdict, deque
 from dotenv import load_dotenv
 import mongodb_journal as mongojnal
+from bible_figures import bible_figures
 load_dotenv()
 
 
@@ -64,6 +65,14 @@ def get_bible_verse(reference):
     """
     return _get_bible_verse(reference)
 
+@tool
+def get_bible_story():
+    """
+    Fetch a Bible figure from the list and use LLM to tell their stories when users would like to know more about what they've been through and experienced
+    """
+    day_of_year = datetime.now().timetuple().tm_yday
+    bible_figure = bible_figures[day_of_year % len(bible_figures)]
+    return bible_figure
 
 @tool
 def get_verse_of_the_day(dummy: str = "") -> str:
@@ -275,6 +284,7 @@ def get_growth_timeline(limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+
 #================
 #  LLM
 #================
@@ -391,7 +401,7 @@ Make your response as rich as possible but under 4096 characters including space
 """
 
 agent = create_agent(model=model, tools=[
-                     get_bible_verse, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections, get_last_week_reflections, get_recent_reflections, record_growth_milestone, get_growth_timeline], system_prompt=ANGEL_SYSTEM_PROMPT)
+                     get_bible_verse, get_bible_story, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections, get_last_week_reflections, get_recent_reflections, record_growth_milestone, get_growth_timeline], system_prompt=ANGEL_SYSTEM_PROMPT)
 
 """
 def generate_response(user_input):
