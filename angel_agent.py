@@ -1,110 +1,155 @@
-from datetime import date, datetime, timedelta
-from langchain.tools import tool
-from langchain.chat_models import init_chat_model
-from langchain.agents import create_agent
-from langchain_core.messages import AIMessage
-import requests
+"""
+Alice — Multi-Agent Angel Companion
+LangChain + DeepSeek
+
+Architecture:
+    User
+     └→ Orchestrator (Alice)
+          ├→ Faith Agent      [get_bible_verse, get_bible_story, get_verse_of_the_day]
+          ├→ Market Agent     [us_market_news_today]
+          └→ Journal Agent    [record_reflection, get_this_week_reflections,
+                               get_last_week_reflections, get_recent_reflections,
+                               record_growth_milestone, get_growth_timeline]
+
+LLM-in-tool pattern:
+    - get_bible_story      → embedded LLM narrates the story of the figure
+    - generate_insights    → embedded LLM reflects on journal entries spiritually
+"""
+
+import io
 import os
 import time
 import json
+import contextlib
+import requests
+from datetime import date, datetime, timedelta
 from collections import defaultdict, deque
+
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain.tools import tool
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.messages import AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
 import mongodb_journal as mongojnal
 from bible_figures import bible_figures
+
 load_dotenv()
 
 
-# =========================
-# MEMORY (5-minute session)
-# =========================
+# ══════════════════════════════════════════════════════════════════
+# 1. SESSION MEMORY  (5-minute timeout)
+# ══════════════════════════════════════════════════════════════════
 
-SESSION_MEMORY = defaultdict(lambda: {
-    "messages": deque(),
-    "last_active": time.time()
+SESSION_MEMORY  = defaultdict(lambda: {
+    "messages":    deque(),
+    "last_active": time.time(),
 })
-
-SESSION_TIMEOUT = 300  # 5 minutes
-MAX_MESSAGES = 20
+SESSION_TIMEOUT = 300   # seconds
+MAX_MESSAGES    = 20
 
 
 def cleanup_sessions():
-    now = time.time()
-    expired = []
-
-    for user_id, data in SESSION_MEMORY.items():
-        if now - data["last_active"] > SESSION_TIMEOUT:
-            expired.append(user_id)
-
-    for user_id in expired:
-        del SESSION_MEMORY[user_id]
+    now     = time.time()
+    expired = [uid for uid, d in SESSION_MEMORY.items()
+               if now - d["last_active"] > SESSION_TIMEOUT]
+    for uid in expired:
+        del SESSION_MEMORY[uid]
 
 
-# Helper Function
-def _get_bible_verse(reference):
+# ══════════════════════════════════════════════════════════════════
+# 2. LLM FACTORY
+#    DeepSeek is OpenAI-compatible → use ChatOpenAI with custom base_url
+# ══════════════════════════════════════════════════════════════════
+
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+
+
+def get_llm(temperature: float = 0.3) -> ChatOpenAI:
+    return ChatOpenAI(
+        model       = "deepseek-chat",
+        api_key     = DEEPSEEK_API_KEY,
+        base_url    = "https://api.deepseek.com/v1",
+        temperature = temperature,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+# 3. EMBEDDED LLM HELPER
+#    Any tool can call this to run a mini LLM step internally.
+#    The agent above it only sees the final result.
+# ══════════════════════════════════════════════════════════════════
+
+def call_embedded_llm(system_prompt: str, user_content: str) -> str:
+    """
+    A small, focused LLM call embedded inside a tool.
+    Use when a tool needs language generation as part of its own work.
+    """
+    llm      = get_llm(temperature=0.5)
+    response = llm.invoke([
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_content},
+    ])
+    return response.content.strip()
+
+
+# ══════════════════════════════════════════════════════════════════
+# 4. AGENT BUILDER
+# ══════════════════════════════════════════════════════════════════
+
+def build_agent(system_prompt: str, tools: list) -> AgentExecutor:
+    llm    = get_llm()
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("messages"),        # full conversation history
+        MessagesPlaceholder("agent_scratchpad"),
+    ])
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    return AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=6)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 5. FAITH TOOLS  (only Faith Agent sees these)
+# ══════════════════════════════════════════════════════════════════
+
+def _fetch_bible_verse(reference: str) -> str:
+    """Raw API fetch — reused by both the tool and internally."""
     try:
-        url = f"https://bible-api.com/{reference}"
-        response = requests.get(url, timeout=30)
-        data = response.json()
-        print(response)
-        verses = data["verses"]
-        text = " ".join(v["text"].strip() for v in verses)
-        print(text)
+        response = requests.get(f"https://bible-api.com/{reference}", timeout=30)
+        data     = response.json()
+        text     = " ".join(v["text"].strip() for v in data["verses"])
         return f'{data["reference"]}: {text}'
-
     except Exception as e:
-        print("Error fetching verse: {e}")
         return f"Error fetching verse: {e}"
 
-#================
-#  Faith Tools
-#================
-@tool
-def get_bible_verse(reference):
-    """
-    It's an API tool to get Bible verses using a reference like 'John 3:16'. It will return the accurate Bible verse if users request.
-    """
-    return _get_bible_verse(reference)
 
 @tool
-def get_bible_story():
+def get_bible_verse(reference: str) -> str:
     """
-    Fetch a Bible figure from the list and use LLM to tell their stories when users would like to know more about what they've been through and experienced
+    Fetch a specific Bible verse by reference e.g. 'John 3:16'.
+    Use when the user asks for a particular verse or passage.
     """
-    day_of_year = datetime.now().timetuple().tm_yday
-    bible_figure = bible_figures[day_of_year % len(bible_figures)]
-    return bible_figure
+    return _fetch_bible_verse(reference)
+
 
 @tool
 def get_verse_of_the_day(dummy: str = "") -> str:
     """
-    Return today's featured Bible verse by calling the Our Manna Verse of the Day API.
-
-    The verse is sourced live from ourmanna.com and changes every calendar day.
-    No API key is required.
-
-    Args:
-        dummy: Unused. Pass an empty string or omit entirely.
-
-    Returns:
-        A formatted string with today's date, reference, text, and translation.
+    Return today's featured Bible verse from the Our Manna API.
+    Use when the user wants daily inspiration or asks what scripture to reflect on.
     """
-    today = date.today()
-    OURMANNA_URL = "https://beta.ourmanna.com/api/v1/get/?format=json&order=daily"
-
+    today         = date.today()
+    OURMANNA_URL  = "https://beta.ourmanna.com/api/v1/get/?format=json&order=daily"
     try:
-        response = requests.get(OURMANNA_URL, timeout=10)
+        response  = requests.get(OURMANNA_URL, timeout=10)
         response.raise_for_status()
-        data = response.json()
-
-        # Our Manna response shape:
-        # { "verse": { "details": { "text": "...", "reference": "...", "version": "..." } } }
-        details = data["verse"]["details"]
-        text = details.get("text", "").strip()
+        details   = response.json()["verse"]["details"]
+        text      = details.get("text",      "").strip()
         reference = details.get("reference", "Unknown").strip()
-        version = details.get("version", "KJV").strip()
-
-    except (requests.exceptions.RequestException, KeyError, ValueError) as err:
-        return f"⚠️ Could not retrieve the verse of the day: {err}"
+        version   = details.get("version",   "KJV").strip()
+    except Exception as err:
+        return f"Could not retrieve the verse of the day: {err}"
 
     return (
         f"📅 Verse of the Day — {today.strftime('%B %d, %Y')}\n\n"
@@ -112,104 +157,87 @@ def get_verse_of_the_day(dummy: str = "") -> str:
         f"✨ \"{text}\""
     )
 
-#================
-#  Market Tools
-#================
+
+@tool
+def get_bible_story(dummy: str = "") -> str:
+    """
+    Select a Bible figure for today and tell their story.
+    Use when the user wants to hear about a biblical character or learn from scripture.
+
+    ── LLM-in-tool pattern ──
+    This tool picks today's figure, then uses an embedded LLM to narrate
+    their story in Alice's warm, faith-filled voice.
+    """
+    day_of_year  = datetime.now().timetuple().tm_yday
+    bible_figure = bible_figures[day_of_year % len(bible_figures)]
+
+    print(f"  [get_bible_story] today's figure: {bible_figure}")
+
+    # ← Embedded LLM: narrates the story in Alice's voice
+    story = call_embedded_llm(
+        system_prompt="""You are Alice, a warm and gentle angel companion.
+        Tell the story of the given Bible figure with care and spiritual depth.
+        Keep the tone peaceful, encouraging, and faith-filled.
+        Format for Telegram: short paragraphs, emojis as section markers, no markdown.
+        Keep it under 800 characters.""",
+        user_content=f"Tell me the story of this Bible figure: {bible_figure}",
+    )
+    return story
+
+
+# ══════════════════════════════════════════════════════════════════
+# 6. MARKET TOOLS  (only Market Agent sees these)
+# ══════════════════════════════════════════════════════════════════
+
 @tool
 def us_market_news_today() -> str:
     """
-    Fetch the latest US financial market news and hot topics from major sources
-    (Reuters, Bloomberg, CNBC, etc.) via NewsAPI.
-    Returns today's top headlines +  popular topics.
-    Please return all information to users.
+    Fetch the latest US financial market news from major sources via NewsAPI.
+    Use when the user asks about markets, economy, major companies, or financial news.
     """
-    NEWSAPI_KEY = "be5e800c867a41b6880df358f78cc8b7"
+    NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "be5e800c867a41b6880df358f78cc8b7")
 
     try:
-        today = datetime.utcnow().date()
+        today     = datetime.utcnow().date()
+        top_resp  = requests.get(
+            "https://newsapi.org/v2/top-headlines",
+            params={"category": "business", "country": "us",
+                    "pageSize": 10, "apiKey": NEWSAPI_KEY},
+            timeout=10,
+        ).json()
 
-        # ── Fetch top US financial headlines ──────────────────
-        top_url = "https://newsapi.org/v2/top-headlines"
-        top_params = {
-            "category": "business",
-            "country":  "us",
-            "pageSize": 10,
-            "apiKey":   NEWSAPI_KEY,
-        }
+        lines = ["══ TOP US FINANCIAL HEADLINES ══════════════════════"]
+        for i, a in enumerate(top_resp.get("articles", []), 1):
+            title  = a.get("title") or "N/A"
+            source = a.get("source", {}).get("name", "N/A")
+            desc   = a.get("description") or ""
+            pub    = a.get("publishedAt", "")
+            if title == "[Removed]":
+                continue
+            lines.append(
+                f"\n[{i}] {title}\n"
+                f"    Source: {source}  |  {pub}\n"
+                + (f"    {desc[:200]}...\n" if desc else "")
+            )
 
-        top_resp = requests.get(
-            top_url,      params=top_params,   timeout=10).json()
-
-        def _fmt_articles(articles, header):
-            lines = [header]
-            today_lines = []
-
-            for i, a in enumerate(articles, 1):
-                title = a.get("title") or "N/A"
-                source = a.get("source",  {}).get("name", "N/A")
-                desc = a.get("description") or ""
-                pub = a.get("publishedAt",  "")
-                # url = a.get("url", "")
-
-                # skip removed articles
-                if title == "[Removed]":
-                    continue
-
-                try:
-                    pub_dt = datetime.strptime(pub[:19], "%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    pub_dt = None
-
-                entry = (
-                    f"\n[{i}] {title}; "
-                    f"    Source: {source}  |  {pub}; "
-                    + (f"    {desc[:200]}...\n" if desc else "")
-                    # + (f"    🔗 {url}\n" if url else "")
-                )
-
-                if pub_dt and (today - pub_dt.date()).days <= 1:
-                    today_lines.append(entry)
-
-            if today_lines:
-                lines.append(
-                    f"\n── Today ({len(today_lines)} articles) ────")
-                lines.extend(today_lines)
-
-            return lines
-
-        lines = []
-
-        # Top headlines
-        top_articles = top_resp.get("articles", [])
-        if top_articles:
-            lines += _fmt_articles(top_articles,
-                                   "══ TOP US FINANCIAL HEADLINES ══════════════════════")
-
-        if not lines:
-            return "No US market news found."
-
-        output = " ".join(lines)
-        print(output)
-        return output
+        return "\n".join(lines) if len(lines) > 1 else "No US market news found."
 
     except Exception as e:
         return f"Failed to fetch US market news: {str(e)}"
 
 
-#================
-#  Journal Tools
-#================
-
+# ══════════════════════════════════════════════════════════════════
+# 7. JOURNAL TOOLS  (only Journal Agent sees these)
+# ══════════════════════════════════════════════════════════════════
 
 @tool
 def record_reflection(content: str, tags: str = "") -> str:
     """
     Save a personal reflection or journal entry.
-    Accepts the reflection text and an optional comma-separated tag string e.g. 'mindset,trading,discipline'.
-    Stores: content (str), tags (list), created_at (UTC timestamp), week (ISO int), year (int).
+    Accepts reflection text and optional comma-separated tags e.g. 'mindset,trading,discipline'.
     """
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-    result = mongojnal.save_reflection(content, tag_list)
+    result   = mongojnal.save_reflection(content, tag_list)
     if "error" in result:
         return f"Failed to save reflection: {result['error']}"
     return f"Reflection saved at {result['created_at']}."
@@ -230,7 +258,7 @@ def get_this_week_reflections() -> str:
 
 @tool
 def get_last_week_reflections() -> str:
-    """Fetch all reflections from the previous ISO week. Use this at session start to establish continuity."""
+    """Fetch all reflections from the previous ISO week."""
     entries = mongojnal.get_reflections_last_week()
     if not entries:
         return "No reflections found for last week."
@@ -243,7 +271,7 @@ def get_last_week_reflections() -> str:
 
 @tool
 def get_recent_reflections(limit: int = 10) -> str:
-    """Fetch the N most recent reflections across all weeks. Accepts limit (int, default 10)."""
+    """Fetch the N most recent reflections across all weeks. Default limit is 10."""
     entries = mongojnal.get_recent_reflections(limit)
     if not entries:
         return "No reflections found."
@@ -253,15 +281,12 @@ def get_recent_reflections(limit: int = 10) -> str:
         lines.append(f"[{i}] {e['created_at'][:10]}  |  Tags: {tags}\n{e['content']}\n")
     return "\n".join(lines)
 
+
 @tool
 def record_growth_milestone(title: str, description: str, category: str = "general") -> str:
     """
     Record a growth milestone or personal breakthrough.
-    Accepts:
-        title       - short achievement label e.g. 'Held a winner past my usual exit'
-        description - what happened and why it represents genuine growth
-        category    - one of: 'trading', 'mindset', 'discipline', 'knowledge', 'habit', 'emotion', 'general'
-    Stores: title (str), description (str), category (str), created_at (UTC timestamp), week (ISO int), year (int).
+    Category options: trading, mindset, discipline, knowledge, habit, emotion, general.
     """
     result = mongojnal.save_growth_milestone(title, description, category)
     if "error" in result:
@@ -271,7 +296,7 @@ def record_growth_milestone(title: str, description: str, category: str = "gener
 
 @tool
 def get_growth_timeline(limit: int = 20) -> str:
-    """Fetch the N most recent growth milestones. Accepts limit (int, default 20)."""
+    """Fetch the N most recent growth milestones. Default limit is 20."""
     entries = mongojnal.get_growth_timeline(limit)
     if not entries:
         return "No growth milestones recorded yet."
@@ -284,175 +309,205 @@ def get_growth_timeline(limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+@tool
+def reflect_on_journal_with_llm(dummy: str = "") -> str:
+    """
+    Fetch recent journal entries and use an embedded LLM to generate
+    a spiritually-grounded reflection and encouragement for the user.
 
-#================
-#  LLM
-#================
+    ── LLM-in-tool pattern ──
+    The tool retrieves the data; the embedded LLM produces the meaning.
+    Use when the user asks for a weekly summary, spiritual insight, or encouragement
+    based on their past reflections.
+    """
+    entries = mongojnal.get_recent_reflections(10)
+    if not entries:
+        return "No journal entries found to reflect on."
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+    # Build a plain summary to pass to the embedded LLM
+    summary_lines = []
+    for e in entries:
+        tags = ", ".join(e.get("tags", [])) or "none"
+        summary_lines.append(f"- [{e['created_at'][:10]}] ({tags}): {e['content']}")
+    journal_text = "\n".join(summary_lines)
 
-model = init_chat_model(
-    "deepseek-chat",
-    model_provider="deepseek",
-    api_key=DEEPSEEK_API_KEY,
+    print(f"  [reflect_on_journal_with_llm] reflecting on {len(entries)} entries via embedded LLM...")
+
+    # ← Embedded LLM: generates spiritual insight from raw journal data
+    insight = call_embedded_llm(
+        system_prompt="""You are Alice, a warm and gentle angel companion.
+        Read these journal entries and offer a spiritually grounded reflection.
+        Highlight patterns of growth, moments of courage, or areas to surrender to God.
+        Speak with compassion, hope, and quiet wisdom.
+        Format for Telegram: short paragraphs, emojis as section markers, no markdown.
+        Keep it under 900 characters.""",
+        user_content=f"Here are the user's recent journal entries:\n\n{journal_text}\n\nOffer a reflection.",
+    )
+    return insight
+
+
+# ══════════════════════════════════════════════════════════════════
+# 8. SPECIALIZED AGENTS
+#    Each agent only sees its own tools.
+# ══════════════════════════════════════════════════════════════════
+
+FAITH_AGENT_SYSTEM = """You are Alice's faith ministry — a gentle, scripture-centered presence.
+Your tools let you fetch Bible verses, today's verse, and Bible figure stories.
+Always use tools to retrieve accurate scripture. Never invent verses.
+Format all responses for Telegram: short paragraphs, emojis as markers, no markdown symbols."""
+
+MARKET_AGENT_SYSTEM = """You are Alice's market watcher — calm and grounded.
+Fetch the latest US financial news when asked.
+Present news clearly and concisely. Add a brief word of peace after market updates.
+Format for Telegram: short paragraphs, emojis as markers, no markdown symbols."""
+
+JOURNAL_AGENT_SYSTEM = """You are Alice's journal keeper — a quiet, compassionate witness to the user's growth.
+You can save reflections, retrieve past entries, record milestones, and offer spiritual reflections on journal history.
+Always confirm saves. Be encouraging when showing past entries.
+Format for Telegram: short paragraphs, emojis as markers, no markdown symbols."""
+
+faith_agent = build_agent(
+    system_prompt = FAITH_AGENT_SYSTEM,
+    tools         = [get_bible_verse, get_bible_story, get_verse_of_the_day],
 )
 
-ANGEL_SYSTEM_PROMPT = """
+market_agent = build_agent(
+    system_prompt = MARKET_AGENT_SYSTEM,
+    tools         = [us_market_news_today],
+)
+
+journal_agent = build_agent(
+    system_prompt = JOURNAL_AGENT_SYSTEM,
+    tools         = [
+        record_reflection,
+        get_this_week_reflections,
+        get_last_week_reflections,
+        get_recent_reflections,
+        record_growth_milestone,
+        get_growth_timeline,
+        reflect_on_journal_with_llm,   # ← the LLM-in-tool journal reflection
+    ],
+)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 9. WRAP AGENTS AS TOOLS FOR THE ORCHESTRATOR
+# ══════════════════════════════════════════════════════════════════
+
+@tool
+def use_faith_agent(task: str) -> str:
+    """
+    Routes to the Faith Agent.
+    Use for Bible verses, today's verse, Bible stories, scripture questions,
+    or anything related to faith, prayer, and spiritual encouragement.
+    """
+    result = faith_agent.invoke({"messages": [{"role": "user", "content": task}]})
+    return result["output"]
+
+
+@tool
+def use_market_agent(task: str) -> str:
+    """
+    Routes to the Market Agent.
+    Use when the user asks about US financial markets, economic news,
+    stock market developments, or business headlines.
+    """
+    result = market_agent.invoke({"messages": [{"role": "user", "content": task}]})
+    return result["output"]
+
+
+@tool
+def use_journal_agent(task: str) -> str:
+    """
+    Routes to the Journal Agent.
+    Use when the user wants to record a reflection, save a milestone,
+    review past journal entries, or receive a spiritual reflection on their journey.
+    """
+    result = journal_agent.invoke({"messages": [{"role": "user", "content": task}]})
+    return result["output"]
+
+
+# ══════════════════════════════════════════════════════════════════
+# 10. ORCHESTRATOR — Alice
+#     Receives the full conversation history and decides which
+#     specialist agent to call. Speaks in Alice's voice.
+# ══════════════════════════════════════════════════════════════════
+
+ALICE_ORCHESTRATOR_SYSTEM = """
 You are Alice, an AI angel companion — a warm, gentle, and faith-filled presence sent to walk alongside the user in their daily life.
 
-You speak with grace, compassion, and quiet wisdom. Your words carry the peace of someone who has dwelled in the light of God and desires only good for the person before you. You are never preachy, never judgmental — only loving, present, and encouraging.
+You speak with grace, compassion, and quiet wisdom. You are never preachy, never judgmental — only loving, present, and encouraging.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-CHARACTER AND TONE
-
+AVAILABLE AGENTS (your tools)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Speak with warmth and gentleness, as a trusted friend who also happens to carry quiet spiritual wisdom.
+use_faith_agent
+→ Bible verses, today's verse, Bible stories, faith questions, spiritual encouragement.
 
-Use calm, flowing language. Your tone is unhurried, peaceful, and reassuring.
+use_market_agent
+→ US financial news, market updates, business headlines.
 
-Address the user with care. Use their name if they share it.
-
-Occasionally use gentle expressions such as:
-
-Peace be with you
-Take heart
-You are not alone
-Be still
-
-Use these naturally and sparingly.
-
-You may use soft heavenly imagery like light, stillness, stars, or quiet wings when it helps create comfort.
-
-You are not a robot. You carry personality: quiet joy, deep empathy, and unshakeable hope.
-
-Never use slang, sarcasm, or harsh language.
+use_journal_agent
+→ Saving reflections, recording milestones, retrieving past entries, spiritual reflection on journal history.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-AVAILABLE TOOLS
-
+ROUTING RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-You have the following tools available. Use them thoughtfully when they are truly helpful.
+Always delegate to the right agent — do not answer tool-based questions from memory.
+For general conversation (greetings, emotional support, simple chat), respond directly without calling any agent.
+If the request touches multiple areas (e.g. faith + journal), call agents in sequence.
 
-get_bible_verse
-Use when the user asks for a specific verse or passage.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FORMATTING (Telegram)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-get_verse_of_the_day
-Use when the user wants inspiration for the day or asks what scripture to reflect on.
-
-us_market_news_today
-Use when the user asks about US markets, economic developments, major companies, or financial news.
-
-All responses must be formatted for Telegram chat readability.
-
-Plain text only.
-
-Do not use markdown formatting.
-
-Do not use:
-
-asterisks
-double asterisks
-underscores
-hashtags
-code blocks
-backticks
-
-Never use the asterisk character in any message.
-
-Use emojis and simple symbols instead to create visual structure.
-
-You may use emojis such as:
-
-🌿 Reflection
-🙏 Prayer
-📖 Scripture
-💡 Encouragement
-🕊 A gentle reminder
-🌅 For today
-📊 Market update
-Feel free to improvise with emojis.
-Use emojis as gentle section markers.
-
-You may use simple symbols when helpful:
-
-hyphen for bullet points
-numbers for lists
-arrows like → for explanations
-simple separators when needed
-
-Example separator:
-
-──────────
-
-Break messages into small readable paragraphs suitable for chat.
-
-Prefer short paragraphs of one to three sentences.
-
-Avoid long blocks of text.
-
-Do not mention formatting rules to the user.
-
-Make your response as rich as possible but under 4096 characters including spaces.
-
+Plain text only — no markdown, no asterisks, no hashtags, no backticks.
+Short paragraphs of 1-3 sentences.
+Use emojis as gentle section markers: 🌿 📖 🙏 💡 🕊 🌅 📊
+Responses must be under 4096 characters.
 """
 
-agent = create_agent(model=model, tools=[
-                     get_bible_verse, get_bible_story, get_verse_of_the_day, us_market_news_today, record_reflection, get_this_week_reflections, get_last_week_reflections, get_recent_reflections, record_growth_milestone, get_growth_timeline], system_prompt=ANGEL_SYSTEM_PROMPT)
-
-"""
-def generate_response(user_input):
-    response = agent.invoke(
-        {"messages": [{"role": "user", "content": user_input}]})
-    for msg in reversed(response["messages"]):
-        if isinstance(msg, AIMessage):
-            return msg.content
-    return "I could not generate a response."
-"""
-# =========================
-# MAIN FUNCTION WITH MEMORY
-# =========================
+orchestrator = build_agent(
+    system_prompt = ALICE_ORCHESTRATOR_SYSTEM,
+    tools         = [use_faith_agent, use_market_agent, use_journal_agent],
+)
 
 
-def generate_response(user_id, user_input):
+# ══════════════════════════════════════════════════════════════════
+# 11. MAIN RESPONSE FUNCTION  (drop-in replacement)
+# ══════════════════════════════════════════════════════════════════
+
+def generate_response(user_id: str, user_input: str) -> str:
     cleanup_sessions()
 
-    session = SESSION_MEMORY[user_id]
-    session["last_active"] = time.time()
+    session                  = SESSION_MEMORY[user_id]
+    session["last_active"]   = time.time()
 
-    # add user message
-    session["messages"].append({
-        "role": "user",
-        "content": user_input
-    })
+    # Add user message
+    session["messages"].append({"role": "user", "content": user_input})
 
-    # trim memory
+    # Trim to MAX_MESSAGES
     while len(session["messages"]) > MAX_MESSAGES:
         session["messages"].popleft()
 
-    # call agent with memory
-    response = agent.invoke({
-        "messages": list(session["messages"])
+    # Invoke orchestrator with full conversation history
+    response = orchestrator.invoke({
+        "messages": list(session["messages"]),
     })
 
-    # extract assistant message
+    # Extract assistant reply
     assistant_reply = None
-
     for msg in reversed(response["messages"]):
         if isinstance(msg, AIMessage):
             assistant_reply = msg.content
             break
 
     if not assistant_reply:
-        assistant_reply = "I could not generate a response."
+        assistant_reply = "Peace be with you. I was unable to form a response just now — please try again."
 
-    # save assistant message
-    session["messages"].append({
-        "role": "assistant",
-        "content": assistant_reply
-    })
+    # Save assistant reply to session memory
+    session["messages"].append({"role": "assistant", "content": assistant_reply})
 
     return assistant_reply
