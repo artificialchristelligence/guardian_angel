@@ -178,7 +178,7 @@ def get_bible_story(dummy: str = "") -> str:
         Tell the story of the given Bible figure with care and spiritual depth.
         Keep the tone peaceful, encouraging, and faith-filled.
         Format for Telegram: short paragraphs, emojis as section markers, no markdown.
-        Keep it under 800 characters.""",
+        Keep it under 4000 characters.""",
         user_content=f"Tell me the story of this Bible figure: {bible_figure}",
     )
     return story
@@ -499,7 +499,16 @@ def generate_response(user_id: str, user_input: str) -> str:
     # Extract assistant reply
     assistant_reply = None
     for msg in reversed(response["messages"]):
+        # case 1: proper AIMessage object
         if isinstance(msg, AIMessage):
+            assistant_reply = msg.content
+            break
+        # case 2: plain dict (common with langchain-classic on Python 3.9)
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            assistant_reply = msg.get("content")
+            break
+        # case 3: object with role attribute but not AIMessage
+        if hasattr(msg, "role") and msg.role == "assistant":
             assistant_reply = msg.content
             break
 
