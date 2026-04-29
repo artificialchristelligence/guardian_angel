@@ -497,7 +497,8 @@ def generate_response(user_id: str, user_input: str) -> str:
     })
 
     # Extract assistant reply
-    assistant_reply = None
+    assistant_reply = response["output"]
+    """
     for msg in reversed(response["messages"]):
         # case 1: proper AIMessage object
         if isinstance(msg, AIMessage):
@@ -514,7 +515,7 @@ def generate_response(user_id: str, user_input: str) -> str:
 
     if not assistant_reply:
         assistant_reply = "Peace be with you. I was unable to form a response just now — please try again."
-
+    """
     # Save assistant reply to session memory
     session["messages"].append({"role": "assistant", "content": assistant_reply})
 
