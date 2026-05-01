@@ -188,6 +188,8 @@ def get_bible_story(dummy: str = "") -> str:
 # 6. MARKET TOOLS  (only Market Agent sees these)
 # ══════════════════════════════════════════════════════════════════
 
+FMP_API_KEY = os.environ.get("FMP_API_KEY")
+
 @tool
 def us_market_news_today() -> str:
     """
@@ -224,6 +226,23 @@ def us_market_news_today() -> str:
     except Exception as e:
         return f"Failed to fetch US market news: {str(e)}"
 
+@tool
+def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
+    """
+    Fetch real-time batch stock quotes from Financial Modeling Prep (FMP).
+    Reads ticker symbols from a text file (one per line, # lines ignored).
+    Returns a list of quote dicts containing price, volume, change%, and more.
+    """
+    with open(symbols_file, "r") as f:
+        symbols = ",".join(
+            line.strip().upper()
+            for line in f
+            if line.strip() and not line.strip().startswith("#")
+        )
+    url = f"https://financialmodelingprep.com/stable/batch-quote?symbols={symbols}&apikey={FMP_API_KEY}"
+    response = requests.get(url)
+    response.raise_for_status()
+    return response.json()
 
 # ══════════════════════════════════════════════════════════════════
 # 7. JOURNAL TOOLS  (only Journal Agent sees these)
@@ -356,9 +375,7 @@ Always use tools to retrieve accurate scripture. Never invent verses.
 Format all responses for Telegram: short paragraphs, emojis as markers, no markdown symbols."""
 
 MARKET_AGENT_SYSTEM = """You are Alice's market watcher — calm and grounded.
-Fetch the latest US financial news when asked.
-Present news clearly and concisely. Add a brief word of peace after market updates.
-Format for Telegram: short paragraphs, emojis as markers, no markdown symbols."""
+Fetch the latest US financial news when asked.  Present news clearly and concisely. Add a brief word of peace after market updates. Format for Telegram: short paragraphs, emojis as markers, no markdown symbols. You can also fetch real time batch quote for US stocks. Provide data for Alice to check the best buying or selling timeing."""
 
 JOURNAL_AGENT_SYSTEM = """You are Alice's journal keeper — a quiet, compassionate witness to the user's growth.
 You can save reflections, retrieve past entries, record milestones, and offer spiritual reflections on journal history.
@@ -372,7 +389,7 @@ faith_agent = build_agent(
 
 market_agent = build_agent(
     system_prompt = MARKET_AGENT_SYSTEM,
-    tools         = [us_market_news_today],
+    tools         = [us_market_news_today, fmp_batch_quote],
 )
 
 journal_agent = build_agent(
@@ -409,7 +426,7 @@ def use_market_agent(task: str) -> str:
     """
     Routes to the Market Agent.
     Use when the user asks about US financial markets, economic news,
-    stock market developments, or business headlines.
+    stock market developments, business headlines and real-time batch quote and stock prices.
     """
     result = market_agent.invoke({"messages": [{"role": "user", "content": task}]})
     return result["output"]
@@ -445,7 +462,7 @@ use_faith_agent
 → Bible verses, today's verse, Bible stories, faith questions, spiritual encouragement.
 
 use_market_agent
-→ US financial news, market updates, business headlines.
+→ US financial news, market updates, business headlines, US stock prices real time batch quotes.
 
 use_journal_agent
 → Saving reflections, recording milestones, retrieving past entries, spiritual reflection on journal history.
