@@ -23,5 +23,5 @@ schedule: cron 30 17 * * *
 prompt:   Just finished the working day. Please give words of encouragement to wrap up the day with spiritual evening and make a perfect ending by quoting the verse_of_the_day again
 ---
 name:      stock_report
-schedule:  cron */3 14-19 * * 0-4
+schedule:  cron */15 14-19 * * 0-4
 prompt:    fetch real-time stock price data using batch quote function and give me an precise and comprehensive guide on each stock's status, indicator of buying or selling, above average, current volume, real time status so that I can check which one to buy or sell. Keep the characters smaller than 4050 including spaces.
