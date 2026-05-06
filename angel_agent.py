@@ -230,7 +230,7 @@ def us_market_news_today() -> str:
 def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
     """
     Fetch real-time batch stock quotes from Financial Modeling Prep (FMP).
-    Reads ticker symbols from a text file (one per line, # lines ignored).
+    Reads ticker symbols from the text file batch_quote_symbols.txt (already a default value in the input argument) (one per line, # lines ignored).
     Returns a list of quote dicts containing price, volume, change%, and more.
     """
     with open(symbols_file, "r") as f:
