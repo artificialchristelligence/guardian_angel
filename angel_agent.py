@@ -188,7 +188,9 @@ def get_bible_story(dummy: str = "") -> str:
 # 6. MARKET TOOLS  (only Market Agent sees these)
 # ══════════════════════════════════════════════════════════════════
 
-FMP_API_KEY = os.environ.get("FMP_API_KEY")
+# ========= FMP is no longer used ===========
+#FMP_API_KEY = os.environ.get("FMP_API_KEY")
+# ===========================================
 
 @tool
 def us_market_news_today() -> str:
@@ -226,6 +228,7 @@ def us_market_news_today() -> str:
     except Exception as e:
         return f"Failed to fetch US market news: {str(e)}"
 
+
 @tool
 def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
     """
@@ -239,10 +242,51 @@ def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
             for line in f
             if line.strip() and not line.strip().startswith("#")
         )
-    url = f"https://financialmodelingprep.com/stable/batch-quote?symbols={symbols}&apikey={FMP_API_KEY}"
+    
+    # FMP no longer used ===========================================
+    """url = f"https://financialmodelingprep.com/stable/batch-quote?symbols={symbols}&apikey={FMP_API_KEY}"
     response = requests.get(url)
     response.raise_for_status()
-    return response.json()
+    return response.json()"""
+
+    tickers = yf.Tickers(" ".join(symbols))
+
+    results = []
+
+    for symbol in symbols:
+        try:
+            info = yf.Ticker(symbol).info
+
+            prev_close = info.get("previousClose") or info.get("regularMarketPreviousClose") or 0
+            price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+            change = price - prev_close
+            change_pct = (change / prev_close * 100) if prev_close else 0
+
+            results.append({
+                "symbol": symbol,
+                "price": price,
+                "previousClose": prev_close,
+                "change": round(change, 4),
+                "changesPercentage": round(change_pct, 4),
+                "volume": info.get("volume") or info.get("regularMarketVolume"),
+                "tenDayAverageVolume": info.get("averageVolume10days"),
+                "threeMonthAverageVolume": info.get("averageVolume"),
+                "marketCap": info.get("marketCap"),
+                "open": info.get("open") or info.get("regularMarketOpen"),
+                "dayHigh": info.get("dayHigh") or info.get("regularMarketDayHigh"),
+                "dayLow": info.get("dayLow") or info.get("regularMarketDayLow"),
+                "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
+                "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),
+                "fiftyDayAverage": info.get("fiftyDayAverage"),
+                "twoHundredDayAverage": info.get("twoHundredDayAverage"),
+                "currency": info.get("currency"),
+                "exchange": info.get("exchange"),
+                "quoteType": info.get("quoteType"),
+            })
+        except Exception as e:
+            results.append({"symbol": symbol, "error": str(e)})
+
+    return results
 
 # ══════════════════════════════════════════════════════════════════
 # 7. JOURNAL TOOLS  (only Journal Agent sees these)
