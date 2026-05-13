@@ -30,7 +30,7 @@ from langchain.tools import tool
 from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-import yfinanace as yf
+import yfinance as yf
 import mongodb_journal as mongojnal
 from bible_figures import bible_figures
 
