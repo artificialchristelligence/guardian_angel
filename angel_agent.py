@@ -236,21 +236,19 @@ def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
     Reads ticker symbols from the text file batch_quote_symbols.txt (already a default value in the input argument) (one per line, # lines ignored).
     Returns a list of quote dicts containing price, volume, change%, and more.
     """
+
     with open(symbols_file, "r") as f:
-        symbols = ",".join(
-            line.strip().upper()
+        symbols = [line.strip().upper()
             for line in f
             if line.strip() and not line.strip().startswith("#")
-        )
+        ]
     
     # FMP no longer used ===========================================
     """url = f"https://financialmodelingprep.com/stable/batch-quote?symbols={symbols}&apikey={FMP_API_KEY}"
     response = requests.get(url)
     response.raise_for_status()
     return response.json()"""
-
-    tickers = yf.Tickers(" ".join(symbols))
-
+    
     results = []
 
     for symbol in symbols:
@@ -285,7 +283,7 @@ def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
             })
         except Exception as e:
             results.append({"symbol": symbol, "error": str(e)})
-
+  
     return results
 
 # ══════════════════════════════════════════════════════════════════
