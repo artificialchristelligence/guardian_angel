@@ -192,6 +192,30 @@ def get_bible_story(dummy: str = "") -> str:
 #FMP_API_KEY = os.environ.get("FMP_API_KEY")
 # ===========================================
 
+# ======== Helper =============
+def _10_day_price_average(symbol: str) -> float | None:
+    """Return the 10-day simple moving average of closing prices for a symbol."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist   = ticker.history(period="15d")   # fetch a bit more to ensure 10 trading days
+        if len(hist) < 10:
+            return None
+        return round(hist["Close"].iloc[-10:].mean(), 4)
+    except Exception:
+        return None
+
+
+def _20_day_price_average(symbol: str) -> float | None:
+    """Return the 20-day simple moving average of closing prices for a symbol."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist   = ticker.history(period="30d")   # fetch a bit more to ensure 20 trading days
+        if len(hist) < 20:
+            return None
+        return round(hist["Close"].iloc[-20:].mean(), 4)
+    except Exception:
+        return None
+
 @tool
 def us_market_news_today() -> str:
     """
@@ -275,6 +299,8 @@ def fmp_batch_quote(symbols_file: str = "batch_quote_symbols.txt") -> list:
                 "dayLow": info.get("dayLow") or info.get("regularMarketDayLow"),
                 "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
                 "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),
+                "tenDayAverage":_10_day_price_average(symbol),
+                "twentyDayAverage":_20_day_price_average(symbol),
                 "fiftyDayAverage": info.get("fiftyDayAverage"),
                 "twoHundredDayAverage": info.get("twoHundredDayAverage"),
                 "currency": info.get("currency"),
